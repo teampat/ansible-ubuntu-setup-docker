@@ -1,5 +1,5 @@
 - name: Install Docker and required plugins
-  hosts: ubuntu
+  hosts: all
   become: yes
 
   vars:

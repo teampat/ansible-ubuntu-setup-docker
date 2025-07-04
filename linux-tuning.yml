@@ -1,5 +1,5 @@
 - name: Tune Linux system for Docker and high-performance workloads
-  hosts: ubuntu
+  hosts: all
   become: yes
 
   tasks:

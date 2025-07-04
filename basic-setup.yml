@@ -1,5 +1,5 @@
 - name: Basic Linux system setup
-  hosts: ubuntu
+  hosts: all
   become: yes
 
   vars:
