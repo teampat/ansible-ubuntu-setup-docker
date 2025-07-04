@@ -71,9 +71,6 @@ cp inventory.ini.example inventory.ini
 Edit `inventory.ini` with your server details:
 
 ```ini
-[ubuntu]
-your-server-ip ansible_user=your_username
-
 [dev]
 dev-server-ip ansible_user=your_username
 
