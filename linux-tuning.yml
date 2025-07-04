@@ -1,0 +1,61 @@
+- name: Tune Linux system for Docker and high-performance workloads
+  hosts: ubuntu
+  become: yes
+
+  tasks:
+    - name: Reduce swap usage (vm.swappiness)
+      sysctl:
+        name: vm.swappiness
+        value: '10'
+        state: present
+        reload: yes
+      tags: sysctl
+
+    - name: Increase max user watches (fs.inotify.max_user_watches)
+      sysctl:
+        name: fs.inotify.max_user_watches
+        value: '524288'
+        state: present
+        reload: yes
+      tags: sysctl
+
+    - name: Set file-max to match ulimit nofile
+      sysctl:
+        name: fs.file-max
+        value: '65535'
+        state: present
+        reload: yes
+      tags: sysctl
+
+    - name: Limit systemd journal size
+      blockinfile:
+        path: /etc/systemd/journald.conf
+        block: |
+          SystemMaxUse=100M
+          RuntimeMaxUse=50M
+      notify: Restart Journald
+      tags: journald
+
+    - name: Set global ulimits in /etc/security/limits.conf
+      blockinfile:
+        path: /etc/security/limits.conf
+        block: |
+          *               soft    nofile          65535
+          *               hard    nofile          65535
+          *               soft    nproc           65535
+          *               hard    nproc           65535
+      tags: ulimit
+
+    - name: Ensure pam_limits.so is enabled in /etc/pam.d/common-session
+      lineinfile:
+        path: /etc/pam.d/common-session
+        regexp: '^session\s+required\s+pam_limits.so'
+        line: 'session required pam_limits.so'
+        state: present
+      tags: ulimit
+
+  handlers:
+    - name: Restart Journald
+      systemd:
+        name: systemd-journald
+        state: restarted

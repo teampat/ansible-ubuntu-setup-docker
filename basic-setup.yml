@@ -1,0 +1,51 @@
+- name: Basic Linux system setup
+  hosts: ubuntu
+  become: yes
+
+  vars:
+    timezone: Asia/Bangkok
+
+  tasks:
+    - name: Set timezone
+      timezone:
+        name: "{{ timezone }}"
+
+    - name: Ensure systemd-timesyncd is enabled
+      systemd:
+        name: systemd-timesyncd
+        state: started
+        enabled: yes
+
+    - name: Set system locale to UTF-8 (optional)
+      locale_gen:
+        name: en_US.UTF-8
+        state: present
+
+    - name: Set system-wide locale (optional)
+      lineinfile:
+        path: /etc/default/locale
+        regexp: '^LANG='
+        line: 'LANG=en_US.UTF-8'
+
+    - name: Update journald time zone format
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?Timestamp='
+        line: 'Timestamp=local'
+      notify: Restart Journald
+
+    - name: Install unattended-upgrades
+      apt:
+        name: unattended-upgrades
+        state: present
+
+    - name: Enable unattended-upgrades
+      command: dpkg-reconfigure --priority=low unattended-upgrades
+      args:
+        creates: /etc/apt/apt.conf.d/20auto-upgrades
+
+  handlers:
+    - name: Restart Journald
+      systemd:
+        name: systemd-journald
+        state: restarted
