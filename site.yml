@@ -1,3 +1,8 @@
 - import_playbook: basic-setup.yml
+  tags: basic
+
 - import_playbook: install-docker.yml
+  tags: docker
+
 - import_playbook: linux-tuning.yml
+  tags: tuning

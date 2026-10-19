@@ -6,33 +6,35 @@ This Ansible project automates the setup of Ubuntu servers with Docker and syste
 
 This playbook collection performs the following tasks:
 
-- **Basic System Setup**: Configures timezone, locale, and essential system services
+- **Basic System Setup**: Configures timezone, time sync, locale, and unattended upgrades
 - **Docker Installation**: Installs Docker CE with compose plugin and configures user permissions
-- **Linux Tuning**: Optimizes system parameters for Docker and high-performance workloads
+- **Linux Tuning**: Sets swap, inotify, journal, and login ulimits for container hosts
 
 ## 🚀 Features
 
 ### Basic Setup (`basic-setup.yml`)
 
 - Sets system timezone (default: Asia/Bangkok)
-- Enables systemd-timesyncd for time synchronization
+- Enables chrony when it is installed; otherwise installs and enables systemd-timesyncd
 - Configures UTF-8 locale
-- Updates package cache and installs essential packages
+- Installs and enables unattended-upgrades
 
 ### Docker Installation (`install-docker.yml`)
 
-- Installs Docker CE from official repository
-- Installs Docker Compose plugin
-- Adds specified user to docker group
-- Enables and starts Docker service
-- Configures Docker daemon settings
+- Installs Docker CE from the official repository
+- Falls back to an older apt suite (default: `noble`) when this Ubuntu codename is not published yet
+- Removes conflicting Ubuntu Docker packages before install
+- Installs the Docker Compose plugin
+- Adds the SSH user (`ansible_user`) to the docker group
+- Enables and starts the Docker service
+- Configures Docker daemon log rotation
 
 ### Linux Tuning (`linux-tuning.yml`)
 
-- Reduces swap usage (vm.swappiness = 10)
-- Increases file watch limits for development tools
-- Optimizes network and memory parameters
-- Configures system limits for containerized workloads
+- Reduces swap usage (`vm.swappiness = 10`)
+- Increases inotify watch limits
+- Limits systemd journal size
+- Raises `nofile` and `nproc` for login sessions
 
 ## 📁 Project Structure
 
@@ -85,7 +87,7 @@ You can override default variables by editing the playbook files or creating a `
 ```yaml
 # Example variables you can customize
 timezone: "Asia/Bangkok" # Set your timezone
-docker_user: "your_username" # User to add to docker group
+docker_repo_fallback_codename: "noble" # Docker apt suite if this release is not published yet
 ```
 
 ## 🚀 Usage
@@ -111,6 +113,9 @@ ansible-playbook -i inventory.ini install-docker.yml
 
 # System tuning only
 ansible-playbook -i inventory.ini linux-tuning.yml
+
+# Basic setup and tuning, skip Docker
+ansible-playbook -i inventory.ini site.yml --tags basic,tuning
 ```
 
 ### Target Specific Host Groups
@@ -139,22 +144,23 @@ ansible-playbook -i inventory.ini site.yml --check
 
 Key variables you can customize:
 
-| Variable         | Default              | Description                   |
-| ---------------- | -------------------- | ----------------------------- |
-| `timezone`       | `Asia/Bangkok`       | System timezone               |
-| `docker_user`    | `{{ ansible_user }}` | User to add to docker group   |
-| `docker_gpg_url` | Docker official GPG  | Docker repository GPG key URL |
+| Variable                       | Default             | Description                                              |
+| ------------------------------ | ------------------- | -------------------------------------------------------- |
+| `timezone`                     | `Asia/Bangkok`      | System timezone                                          |
+| `docker_repo_fallback_codename`| `noble`             | Docker apt suite used when the host codename is missing |
+| `docker_gpg_url`               | Docker official GPG | Docker repository GPG key URL                            |
 
 ### Tags
 
-Use tags to run specific tasks:
+`site.yml` tags each imported playbook: `basic`, `docker`, and `tuning`. Inside `linux-tuning.yml` you can narrow further:
 
 ```bash
 # Run only sysctl tuning tasks
 ansible-playbook -i inventory.ini linux-tuning.yml --tags sysctl
 
-# Skip Docker installation
-ansible-playbook -i inventory.ini site.yml --skip-tags docker
+# Journal size or login ulimits only
+ansible-playbook -i inventory.ini linux-tuning.yml --tags journald
+ansible-playbook -i inventory.ini linux-tuning.yml --tags ulimit
 ```
 
 ## ✅ Verification

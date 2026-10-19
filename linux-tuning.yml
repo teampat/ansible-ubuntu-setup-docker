@@ -19,12 +19,17 @@
         reload: yes
       tags: sysctl
 
-    - name: Set file-max to match ulimit nofile
+    - name: Remove previously lowered fs.file-max
       sysctl:
         name: fs.file-max
-        value: '65535'
-        state: present
-        reload: yes
+        state: absent
+        reload: no
+      register: file_max_removed
+      tags: sysctl
+
+    - name: Raise fs.file-max until the next boot restores the kernel default
+      command: sysctl -w fs.file-max=2097152
+      when: file_max_removed.changed
       tags: sysctl
 
     - name: Limit systemd journal size

@@ -10,11 +10,25 @@
       timezone:
         name: "{{ timezone }}"
 
-    - name: Ensure systemd-timesyncd is enabled
-      systemd:
+    - name: Gather service facts
+      service_facts:
+
+    - name: Prefer chrony when it is installed and not masked
+      set_fact:
+        time_sync_service: "{{ 'chrony' if ('chrony.service' in ansible_facts.services and ansible_facts.services['chrony.service'].status != 'masked') else 'systemd-timesyncd' }}"
+
+    - name: Install systemd-timesyncd when chrony is not in use
+      apt:
         name: systemd-timesyncd
+        state: present
+      when: time_sync_service == 'systemd-timesyncd'
+
+    - name: Ensure time sync is enabled
+      systemd:
+        name: "{{ time_sync_service }}"
         state: started
         enabled: yes
+        masked: no
 
     - name: Set system locale to UTF-8 (optional)
       locale_gen:
@@ -27,11 +41,11 @@
         regexp: '^LANG='
         line: 'LANG=en_US.UTF-8'
 
-    - name: Update journald time zone format
+    - name: Remove unsupported journald Timestamp setting
       lineinfile:
         path: /etc/systemd/journald.conf
-        regexp: '^#?Timestamp='
-        line: 'Timestamp=local'
+        regexp: '^Timestamp='
+        state: absent
       notify: Restart Journald
 
     - name: Install unattended-upgrades
@@ -40,9 +54,14 @@
         state: present
 
     - name: Enable unattended-upgrades
-      command: dpkg-reconfigure --priority=low unattended-upgrades
-      args:
-        creates: /etc/apt/apt.conf.d/20auto-upgrades
+      copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
 
   handlers:
     - name: Restart Journald

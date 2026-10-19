@@ -5,6 +5,9 @@
   vars:
     docker_gpg_url: https://download.docker.com/linux/ubuntu/gpg
     docker_keyring_path: /etc/apt/keyrings/docker.asc
+    # Used if Docker's apt repo doesn't have a suite for the detected codename yet
+    # (common right after a new Ubuntu release, e.g. 26.04). Override with -e if needed.
+    docker_repo_fallback_codename: noble
 
   tasks:
     - name: Install required dependencies
@@ -26,12 +29,7 @@
         url: "{{ docker_gpg_url }}"
         dest: "{{ docker_keyring_path }}"
         mode: '0644'
-
-    - name: Make GPG key readable
-      file:
-        path: "{{ docker_keyring_path }}"
-        mode: '0644'
-        state: file
+        force: true
 
     - name: Get system architecture
       command: dpkg --print-architecture
@@ -43,14 +41,73 @@
       register: ubuntu_codename
       changed_when: false
 
+    - name: Check if Docker apt repo has a suite for this Ubuntu codename
+      uri:
+        url: "https://download.docker.com/linux/ubuntu/dists/{{ ubuntu_codename.stdout }}/Release"
+        method: GET
+        status_code: [200, 404]
+        timeout: 30
+      register: docker_repo_check
+      failed_when: false
+      changed_when: false
+
+    - name: Check fallback Docker apt suite
+      uri:
+        url: "https://download.docker.com/linux/ubuntu/dists/{{ docker_repo_fallback_codename }}/Release"
+        method: GET
+        status_code: [200, 404]
+        timeout: 30
+      register: docker_repo_fallback_check
+      when: docker_repo_check.status | default(0) != 200
+      failed_when: false
+      changed_when: false
+
+    - name: Fail if no usable Docker apt suite was found
+      fail:
+        msg: >-
+          Could not confirm a Docker apt suite for '{{ ubuntu_codename.stdout }}'
+          (HTTP {{ docker_repo_check.status | default('unreachable') }}).
+          Fallback '{{ docker_repo_fallback_codename }}' is also unavailable
+          (HTTP {{ docker_repo_fallback_check.status | default('unreachable') }}).
+          Check network access to download.docker.com, or set docker_repo_fallback_codename
+          to a published Ubuntu codename.
+      when:
+        - docker_repo_check.status | default(0) != 200
+        - docker_repo_fallback_check.status | default(0) != 200
+
+    - name: Determine effective codename for the Docker apt repo
+      set_fact:
+        docker_effective_codename: "{{ ubuntu_codename.stdout if (docker_repo_check.status | default(0) == 200) else docker_repo_fallback_codename }}"
+
+    - name: Warn if falling back to an older Docker repo codename
+      debug:
+        msg: >-
+          Docker's apt repo has no '{{ ubuntu_codename.stdout }}' suite yet;
+          falling back to '{{ docker_repo_fallback_codename }}'. This is usually fine but
+          verify Docker officially supports this Ubuntu release, and adjust
+          docker_repo_fallback_codename if a newer suite becomes available.
+      when: docker_effective_codename != ubuntu_codename.stdout
+
     - name: Add Docker repository to sources.list.d
       copy:
         dest: /etc/apt/sources.list.d/docker.list
-        content: "deb [arch={{ system_arch.stdout }} signed-by={{ docker_keyring_path }}] https://download.docker.com/linux/ubuntu {{ ubuntu_codename.stdout }} stable\n"
+        content: "deb [arch={{ system_arch.stdout }} signed-by={{ docker_keyring_path }}] https://download.docker.com/linux/ubuntu {{ docker_effective_codename }} stable\n"
 
     - name: Update apt package index
       apt:
         update_cache: yes
+
+    - name: Remove Ubuntu packages that conflict with Docker CE
+      apt:
+        name:
+          - docker.io
+          - docker-doc
+          - docker-compose
+          - docker-compose-v2
+          - podman-docker
+          - containerd
+          - runc
+        state: absent
 
     - name: Install Docker and plugins
       apt:
@@ -60,7 +117,7 @@
           - containerd.io
           - docker-buildx-plugin
           - docker-compose-plugin
-        state: latest
+        state: present
 
     - name: Enable and start Docker
       systemd:
